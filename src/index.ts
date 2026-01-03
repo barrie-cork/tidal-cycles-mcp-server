@@ -476,6 +476,88 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             required: ["channel"],
           },
         },
+        // =========================================================================
+        // ADVANCED COMPOSITION TOOLS (NEW)
+        // =========================================================================
+        {
+          name: "analyze_current_pattern",
+          description: "Analyze currently playing patterns and return music theory information including tempo, rhythm density, detected key/scale, and active channels. Use this before generating complementary patterns.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "all"],
+                description: "Channel to analyze, or 'all' for full state",
+              },
+            },
+          },
+        },
+        {
+          name: "generate_from_reference",
+          description: "Generate patterns inspired by a specific song or artist style. Supports hip-hop (Big Poppa, Juicy, Still D.R.E.) and electronic (Daft Punk, Blue Monday) references.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              reference: {
+                type: "string",
+                description: "Song name, artist, or style reference (e.g., 'Big Poppa', 'Daft Punk', 'boom-bap', 'g-funk')",
+              },
+              element: {
+                type: "string",
+                enum: ["drums", "bass", "full"],
+                description: "What to generate: just drums, just bass, or full pattern",
+              },
+            },
+            required: ["reference"],
+          },
+        },
+        {
+          name: "apply_tidal_transformation",
+          description: "Apply advanced Tidal pattern transformations like jux, iter, scramble, degrade, palindrome. Use for creative pattern manipulation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "Channel to transform",
+              },
+              transformation: {
+                type: "string",
+                enum: ["jux_rev", "iter", "chunk_rev", "palindrome", "scramble", "degrade", "sometimes_fast", "ply", "stutter", "slow_half", "fast_double"],
+                description: "Transformation to apply",
+              },
+              intensity: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                description: "Transformation intensity (0-1), affects parameters like degrade amount",
+              },
+            },
+            required: ["channel", "transformation"],
+          },
+        },
+        {
+          name: "apply_effect_preset",
+          description: "Apply a named effect preset to a channel. Presets combine multiple effects for common sonic goals.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "Channel to apply preset to",
+              },
+              preset: {
+                type: "string",
+                enum: ["dubby", "lofi", "spacey", "aggressive", "underwater", "glitchy", "warm", "cold"],
+                description: "Effect preset name",
+              },
+            },
+            required: ["channel", "preset"],
+          },
+        },
       ],
     }));
 
@@ -644,6 +726,46 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
               args.amount as number | undefined
             );
             console.error(`[TOOL RESULT] humanize: Success`);
+            return result;
+          }
+
+          // =========================================================================
+          // ADVANCED COMPOSITION TOOL HANDLERS
+          // =========================================================================
+
+          case "analyze_current_pattern": {
+            const result = await this.analyzeCurrentPattern(
+              args.channel as string | undefined
+            );
+            console.error(`[TOOL RESULT] analyze_current_pattern: Success`);
+            return result;
+          }
+
+          case "generate_from_reference": {
+            const result = await this.generateFromReference(
+              args.reference as string,
+              args.element as string | undefined
+            );
+            console.error(`[TOOL RESULT] generate_from_reference: Success`);
+            return result;
+          }
+
+          case "apply_tidal_transformation": {
+            const result = await this.applyTidalTransformation(
+              args.channel as string,
+              args.transformation as string,
+              args.intensity as number | undefined
+            );
+            console.error(`[TOOL RESULT] apply_tidal_transformation: Success`);
+            return result;
+          }
+
+          case "apply_effect_preset": {
+            const result = await this.applyEffectPreset(
+              args.channel as string,
+              args.preset as string
+            );
+            console.error(`[TOOL RESULT] apply_effect_preset: Success`);
             return result;
           }
 
@@ -1076,6 +1198,256 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     await this.logAction("HUMANIZE", `Humanized ${channel} (amount: ${amount || 0.02})`);
 
     // Evaluate the modified pattern
+    return this.evalPattern(channel, newPattern);
+  }
+
+  // ===========================================================================
+  // ADVANCED COMPOSITION HANDLERS
+  // ===========================================================================
+
+  private async analyzeCurrentPattern(channel?: string) {
+    console.error(`[ANALYZE] Analyzing ${channel || 'all'} channels`);
+
+    const activeChannels = Array.from(this.channels.values())
+      .filter((c) => c.active);
+
+    if (activeChannels.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No active patterns to analyze. Play something first!",
+          },
+        ],
+      };
+    }
+
+    // Build analysis for each active channel
+    const analysis: string[] = [];
+    let totalDensity = 0;
+
+    for (const ch of activeChannels) {
+      if (channel && channel !== "all" && ch.channel !== channel) continue;
+
+      // Estimate rhythm density by counting pattern elements
+      const patternElements = ch.pattern.match(/[a-z0-9]+/gi) || [];
+      const density = patternElements.length;
+      totalDensity += density;
+
+      // Detect if it's drums, bass, melody based on common patterns
+      let type = "unknown";
+      if (/bd|sd|hh|cp|kick|snare|hat/i.test(ch.pattern)) type = "drums";
+      else if (/bass|sub/i.test(ch.pattern)) type = "bass";
+      else if (/piano|synth|lead|superpiano/i.test(ch.pattern)) type = "melody";
+
+      // Extract note info if present
+      let noteInfo = "";
+      const noteMatch = ch.pattern.match(/# n "([^"]+)"/);
+      if (noteMatch) {
+        noteInfo = ` Notes: ${noteMatch[1]}`;
+      }
+
+      analysis.push(`${ch.channel} (${type}): density=${density}${noteInfo}`);
+    }
+
+    const analysisText = `Pattern Analysis:
+${analysis.join("\n")}
+
+Total density: ${totalDensity} events/cycle
+Recommendation: ${totalDensity < 10 ? "Room for more layers" : totalDensity > 20 ? "Consider simplifying" : "Good balance"}`;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: analysisText,
+        },
+      ],
+    };
+  }
+
+  private async generateFromReference(reference: string, element?: string) {
+    console.error(`[REFERENCE] Generating from: ${reference}, element: ${element || 'drums'}`);
+
+    const ref = reference.toLowerCase();
+    const elem = element || "drums";
+
+    // Reference pattern database
+    interface ReferencePattern {
+      bpm: number;
+      kick: string;
+      snare: string;
+      hat: string;
+      bass?: string;
+      effects: string;
+    }
+
+    const references: Record<string, ReferencePattern> = {
+      // Hip-Hop / Boom-Bap
+      "big poppa": { bpm: 105, kick: 'sound "bd ~ ~ bd ~ bd ~ ~"', snare: 'sound "~ ~ sd ~ ~ ~ sd ~"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 ~ 3 ~ 5 ~ 3 ~"', effects: '# room 0.3 # crush 5' },
+      "juicy": { bpm: 94, kick: 'sound "bd*4"', snare: 'sound "~ sd ~ sd"', hat: 'sound "oh*4"', bass: 'sound "bass3" # n "0 0 7 7"', effects: '# lpf 2000 # room 0.2' },
+      "still dre": { bpm: 93, kick: 'sound "bd ~ bd ~ bd ~ ~ bd"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh(5,8)"', bass: 'sound "bass3" # n "0 ~ ~ 0 ~ 5 ~ ~"', effects: '# room 0.3' },
+      "cream": { bpm: 92, kick: 'sound "bd ~ ~ ~ bd ~ ~ ~"', snare: 'sound "~ ~ sd ~ ~ ~ sd ~"', hat: 'sound "[hh hh] ~ [hh hh] ~"', effects: '# room 0.4 # crush 6' },
+      "nuthin but a g thang": { bpm: 95, kick: 'sound "bd ~ bd ~ bd ~ ~ bd"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh*8" # gain 0.4', bass: 'sound "bass3" # n "0 ~ 0 ~ 5 ~ 0 ~"', effects: '# lpf 1500 # room 0.3' },
+      "boom-bap": { bpm: 90, kick: 'sound "bd ~ ~ bd ~ bd ~ ~"', snare: 'sound "~ ~ sd ~ ~ ~ sd ~"', hat: 'sound "hh*8"', effects: '# room 0.3 # crush 5' },
+      "g-funk": { bpm: 95, kick: 'sound "bd ~ bd ~ bd ~ ~ bd"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh(5,8)"', bass: 'sound "bass3" # n "0 ~ 0 ~ 7 ~ 5 ~"', effects: '# room 0.4' },
+
+      // House / Electronic
+      "daft punk": { bpm: 121, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 0 0 0 3 3 5 5"', effects: '# room 0.3' },
+      "around the world": { bpm: 121, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 0 0 0 3 3 5 5"', effects: '# lpf 1200 # room 0.3' },
+      "blue monday": { bpm: 130, kick: 'sound "bd*4"', snare: 'sound "~ ~ sd ~"', hat: 'sound "oh(3,8)"', bass: 'sound "bass3" # n "0 0 3 3 5 5 7 7"', effects: '# room 0.4' },
+      "filter house": { bpm: 124, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 ~ 3 ~ 5 ~ 3 ~"', effects: '# lpf 1000 # room 0.3' },
+
+      // Techno
+      "minimal": { bpm: 128, kick: 'sound "bd*4" # gain 0.9', snare: 'sound "~ ~ cp ~"', hat: 'sound "hh(3,8)"', effects: '# room 0.2' },
+      "acid": { bpm: 125, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "oh*4"', bass: 'sound "bass3" # n "0 3 5 7" # lpf 800', effects: '# room 0.3' },
+    };
+
+    // Find matching reference
+    let pattern: ReferencePattern | undefined;
+    for (const [key, val] of Object.entries(references)) {
+      if (ref.includes(key)) {
+        pattern = val;
+        break;
+      }
+    }
+
+    // Default to boom-bap if not found
+    if (!pattern) {
+      pattern = references["boom-bap"];
+    }
+
+    // Set tempo first
+    await this.setTempo(pattern.bpm);
+
+    // Generate based on element type
+    if (elem === "drums" || elem === "full") {
+      await this.evalPattern("d1", `${pattern.kick} # gain 0.9 ${pattern.effects}`);
+      await this.evalPattern("d2", `${pattern.snare} # gain 0.8 ${pattern.effects}`);
+      await this.evalPattern("d3", `${pattern.hat} # gain 0.5`);
+    }
+
+    if ((elem === "bass" || elem === "full") && pattern.bass) {
+      await this.evalPattern("d4", `${pattern.bass} # gain 0.8 ${pattern.effects}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✓ Generated ${ref} style ${elem} at ${pattern.bpm} BPM`,
+        },
+      ],
+    };
+  }
+
+  private async applyTidalTransformation(channel: string, transformation: string, intensity?: number) {
+    console.error(`[TRANSFORM] Channel: ${channel}, Transform: ${transformation}, Intensity: ${intensity || 0.5}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to transform. Play something first!`);
+    }
+
+    const pattern = currentState.pattern;
+    const intens = intensity || 0.5;
+    let transformedPattern = pattern;
+
+    // Apply transformation
+    switch (transformation) {
+      case "jux_rev":
+        transformedPattern = `jux rev $ ${pattern}`;
+        break;
+      case "iter":
+        const iterCount = Math.floor(2 + intens * 6); // 2-8
+        transformedPattern = `iter ${iterCount} $ ${pattern}`;
+        break;
+      case "chunk_rev":
+        const chunkSize = Math.floor(2 + intens * 6); // 2-8
+        transformedPattern = `chunk ${chunkSize} rev $ ${pattern}`;
+        break;
+      case "palindrome":
+        transformedPattern = `palindrome $ ${pattern}`;
+        break;
+      case "scramble":
+        const scrambleSize = Math.floor(2 + intens * 6); // 2-8
+        transformedPattern = `scramble ${scrambleSize} $ ${pattern}`;
+        break;
+      case "degrade":
+        const degradeAmount = (intens * 0.7).toFixed(2); // 0-0.7
+        transformedPattern = `degradeBy ${degradeAmount} $ ${pattern}`;
+        break;
+      case "sometimes_fast":
+        transformedPattern = `sometimes (fast 2) $ ${pattern}`;
+        break;
+      case "ply":
+        const plyCount = Math.floor(2 + intens * 2); // 2-4
+        transformedPattern = `ply ${plyCount} $ ${pattern}`;
+        break;
+      case "stutter":
+        const stutterCount = Math.floor(2 + intens * 4); // 2-6
+        const stutterTime = (0.05 + intens * 0.1).toFixed(2);
+        transformedPattern = `stut ${stutterCount} ${stutterTime} 0.5 $ ${pattern}`;
+        break;
+      case "slow_half":
+        transformedPattern = `slow 2 $ ${pattern}`;
+        break;
+      case "fast_double":
+        transformedPattern = `fast 2 $ ${pattern}`;
+        break;
+      default:
+        throw new Error(`Unknown transformation: ${transformation}`);
+    }
+
+    await this.logAction("TRANSFORM", `Applied ${transformation} to ${channel}`);
+    return this.evalPattern(channel, transformedPattern);
+  }
+
+  private async applyEffectPreset(channel: string, preset: string) {
+    console.error(`[EFFECT PRESET] Channel: ${channel}, Preset: ${preset}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to apply effects. Play something first!`);
+    }
+
+    const pattern = currentState.pattern;
+    let effectChain = "";
+
+    // Define effect presets
+    switch (preset) {
+      case "dubby":
+        effectChain = "# delay 0.5 # delayfb 0.7 # room 0.6 # size 0.8";
+        break;
+      case "lofi":
+        effectChain = "# crush 6 # lpf 2000 # room 0.3";
+        break;
+      case "spacey":
+        effectChain = "# room 0.8 # size 0.9 # delay 0.4 # delayfb 0.5";
+        break;
+      case "aggressive":
+        effectChain = "# shape 0.4 # hpf 200 # gain 1.1";
+        break;
+      case "underwater":
+        effectChain = "# lpf 600 # room 0.7 # delay 0.3";
+        break;
+      case "glitchy":
+        effectChain = "# crush 4 # delay 0.2 # delayfb 0.3";
+        break;
+      case "warm":
+        effectChain = "# lpf 3000 # room 0.3 # gain 0.95";
+        break;
+      case "cold":
+        effectChain = "# hpf 300 # room 0.5 # delay 0.1";
+        break;
+      default:
+        throw new Error(`Unknown effect preset: ${preset}`);
+    }
+
+    const newPattern = `${pattern} ${effectChain}`;
+    await this.logAction("EFFECT PRESET", `Applied ${preset} to ${channel}`);
     return this.evalPattern(channel, newPattern);
   }
 
