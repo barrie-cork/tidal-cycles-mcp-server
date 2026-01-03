@@ -10,6 +10,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import { WebSocketServerTransport } from "./websocket-transport.js";
+import { PatternGenerator } from "./generators/PatternGenerator.js";
 
 /**
  * TidalCycles MCP Server
@@ -51,6 +52,7 @@ class TidalMCPServer {
   private ghciStreamAlive: boolean = false;
   private isReconnecting: boolean = false;
   private wsTransport?: WebSocketServerTransport;
+  private patternGenerator: PatternGenerator = new PatternGenerator();
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -219,6 +221,261 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
             },
           },
         },
+        {
+          name: "tidal_set_tempo",
+          description: "Set the global tempo in BPM. This affects all patterns.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              bpm: {
+                type: "number",
+                description: "The tempo in beats per minute (e.g., 120, 140)",
+              },
+            },
+            required: ["bpm"],
+          },
+        },
+        {
+          name: "generate_drums",
+          description: "Generate a drum pattern in a specific style. Auto-plays on d1.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              style: {
+                type: "string",
+                enum: ["techno", "house", "dnb", "ambient", "trap", "jungle", "jazz"],
+                description: "Genre/style of drums",
+              },
+              complexity: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                description: "Pattern complexity (0=simple, 1=complex). Default: 0.5",
+              },
+            },
+            required: ["style"],
+          },
+        },
+        {
+          name: "generate_bassline",
+          description: "Generate a bassline pattern. Auto-plays on d4.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              style: {
+                type: "string",
+                enum: ["techno", "house", "dnb", "acid", "dub", "funk", "jazz"],
+                description: "Style of bassline",
+              },
+            },
+            required: ["style"],
+          },
+        },
+        {
+          name: "generate_melody",
+          description: "Generate a melodic pattern. Auto-plays on d6.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              scale: {
+                type: "string",
+                enum: ["major", "minor", "pentatonic", "blues", "dorian", "harmonic_minor", "lydian", "mixolydian", "phrygian", "chromatic"],
+                description: "Musical scale to use",
+              },
+              length: {
+                type: "number",
+                minimum: 4,
+                maximum: 16,
+                description: "Number of notes (default: 8)",
+              },
+            },
+            required: ["scale"],
+          },
+        },
+        {
+          name: "generate_pattern",
+          description: "Generate a complete multi-channel pattern (drums, hats, bass). Auto-plays on d1, d2, d4.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              style: {
+                type: "string",
+                enum: ["techno", "house", "dnb", "ambient", "trap", "jungle", "jazz"],
+                description: "Genre/style of the complete pattern",
+              },
+            },
+            required: ["style"],
+          },
+        },
+        {
+          name: "generate_variation",
+          description: "Create a variation of an existing pattern on a channel.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "The channel to apply variation to",
+              },
+              intensity: {
+                type: "string",
+                enum: ["subtle", "moderate", "extreme", "glitch"],
+                description: "How much to vary the pattern",
+              },
+            },
+            required: ["channel", "intensity"],
+          },
+        },
+        // =========================================================================
+        // NEW MUSIC THEORY TOOLS
+        // =========================================================================
+        {
+          name: "generate_euclidean",
+          description: "Generate a euclidean rhythm pattern. Distributes hits evenly across steps. Auto-plays on d3.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              hits: {
+                type: "number",
+                minimum: 1,
+                maximum: 16,
+                description: "Number of hits to distribute",
+              },
+              steps: {
+                type: "number",
+                minimum: 2,
+                maximum: 16,
+                description: "Number of steps in the pattern",
+              },
+              sound: {
+                type: "string",
+                description: "Sound to use (bd, sd, hh, cp). Default: bd",
+              },
+            },
+            required: ["hits", "steps"],
+          },
+        },
+        {
+          name: "generate_scale",
+          description: "Generate and play a musical scale pattern. Educational tool to hear scale notes. Auto-plays on d6.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              root: {
+                type: "string",
+                description: "Root note (e.g., c, d, f#)",
+              },
+              scale: {
+                type: "string",
+                enum: ["major", "minor", "pentatonic", "blues", "dorian", "harmonic_minor", "lydian", "mixolydian", "phrygian", "chromatic"],
+                description: "Scale type",
+              },
+            },
+            required: ["root", "scale"],
+          },
+        },
+        {
+          name: "generate_chord_progression",
+          description: "Generate a chord progression pattern. Auto-plays on d5.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              key: {
+                type: "string",
+                description: "Key/scale for progression (e.g., major, minor)",
+              },
+              style: {
+                type: "string",
+                enum: ["pop", "jazz", "blues", "minor", "rock", "classical", "edm", "ballad"],
+                description: "Progression style",
+              },
+            },
+            required: ["key"],
+          },
+        },
+        {
+          name: "generate_fill",
+          description: "Generate a drum fill pattern. Use for transitions. Auto-plays on d1.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              style: {
+                type: "string",
+                enum: ["standard", "snare_roll", "tom_fill", "breakdown"],
+                description: "Fill style",
+              },
+            },
+          },
+        },
+        {
+          name: "add_effect",
+          description: "Apply an audio effect to a channel's current pattern.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "The channel to apply effect to",
+              },
+              effect: {
+                type: "string",
+                enum: ["reverb", "delay", "lpf", "hpf", "distortion", "pan"],
+                description: "Effect to apply",
+              },
+              amount: {
+                type: "number",
+                minimum: 0,
+                maximum: 1,
+                description: "Effect intensity (0-1)",
+              },
+            },
+            required: ["channel", "effect"],
+          },
+        },
+        {
+          name: "transpose",
+          description: "Transpose a channel's pattern by semitones.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "The channel to transpose",
+              },
+              semitones: {
+                type: "number",
+                minimum: -12,
+                maximum: 12,
+                description: "Semitones to transpose (-12 to 12)",
+              },
+            },
+            required: ["channel", "semitones"],
+          },
+        },
+        {
+          name: "humanize",
+          description: "Add subtle timing variation to make pattern sound more human.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              channel: {
+                type: "string",
+                enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9"],
+                description: "The channel to humanize",
+              },
+              amount: {
+                type: "number",
+                minimum: 0.01,
+                maximum: 0.1,
+                description: "Humanization amount (0.01-0.1)",
+              },
+            },
+            required: ["channel"],
+          },
+        },
       ],
     }));
 
@@ -274,6 +531,119 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
           case "tidal_get_history": {
             const result = await this.getHistory(args.limit as number | undefined);
             console.error(`[TOOL RESULT] tidal_get_history: Success`);
+            return result;
+          }
+
+          case "tidal_set_tempo": {
+            const result = await this.setTempo(args.bpm as number);
+            console.error(`[TOOL RESULT] tidal_set_tempo: Success`);
+            return result;
+          }
+
+          case "generate_drums": {
+            const result = await this.generateDrumsHandler(
+              args.style as string,
+              args.complexity as number | undefined
+            );
+            console.error(`[TOOL RESULT] generate_drums: Success`);
+            return result;
+          }
+
+          case "generate_bassline": {
+            const result = await this.generateBasslineHandler(args.style as string);
+            console.error(`[TOOL RESULT] generate_bassline: Success`);
+            return result;
+          }
+
+          case "generate_melody": {
+            const result = await this.generateMelodyHandler(
+              args.scale as string,
+              args.length as number | undefined
+            );
+            console.error(`[TOOL RESULT] generate_melody: Success`);
+            return result;
+          }
+
+          case "generate_pattern": {
+            const result = await this.generatePatternHandler(args.style as string);
+            console.error(`[TOOL RESULT] generate_pattern: Success`);
+            return result;
+          }
+
+          case "generate_variation": {
+            const result = await this.generateVariationHandler(
+              args.channel as string,
+              args.intensity as string
+            );
+            console.error(`[TOOL RESULT] generate_variation: Success`);
+            return result;
+          }
+
+          // =========================================================================
+          // NEW MUSIC THEORY TOOL HANDLERS
+          // =========================================================================
+
+          case "generate_euclidean": {
+            const result = await this.generateEuclideanHandler(
+              args.hits as number,
+              args.steps as number,
+              args.sound as string | undefined
+            );
+            console.error(`[TOOL RESULT] generate_euclidean: Success`);
+            return result;
+          }
+
+          case "generate_scale": {
+            const result = await this.generateScaleHandler(
+              args.root as string,
+              args.scale as string
+            );
+            console.error(`[TOOL RESULT] generate_scale: Success`);
+            return result;
+          }
+
+          case "generate_chord_progression": {
+            const result = await this.generateChordProgressionHandler(
+              args.key as string,
+              args.style as string | undefined
+            );
+            console.error(`[TOOL RESULT] generate_chord_progression: Success`);
+            return result;
+          }
+
+          case "generate_fill": {
+            const result = await this.generateFillHandler(
+              args.style as string | undefined
+            );
+            console.error(`[TOOL RESULT] generate_fill: Success`);
+            return result;
+          }
+
+          case "add_effect": {
+            const result = await this.addEffectHandler(
+              args.channel as string,
+              args.effect as string,
+              args.amount as number | undefined
+            );
+            console.error(`[TOOL RESULT] add_effect: Success`);
+            return result;
+          }
+
+          case "transpose": {
+            const result = await this.transposeHandler(
+              args.channel as string,
+              args.semitones as number
+            );
+            console.error(`[TOOL RESULT] transpose: Success`);
+            return result;
+          }
+
+          case "humanize": {
+            const result = await this.humanizeHandler(
+              args.channel as string,
+              args.amount as number | undefined
+            );
+            console.error(`[TOOL RESULT] humanize: Success`);
             return result;
           }
 
@@ -395,7 +765,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       state.pattern = "";
     }
 
-    const silenceCommand = `silence ${channel}`;
+    // Correct Tidal syntax: d1 $ silence or just assign silence to the channel
+    const silenceCommand = `${channel} $ silence`;
     
     // Use GHCi if configured, otherwise write to file
     if (this.config.useGhci) {
@@ -509,6 +880,203 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         },
       ],
     };
+  }
+
+  private async setTempo(bpm: number) {
+    // Validate BPM range
+    if (bpm < 20 || bpm > 999) {
+      throw new Error(`BPM must be between 20 and 999, got ${bpm}`);
+    }
+
+    // Convert BPM to cycles per second: cps = bpm / 60 / 4
+    // (assuming 4 beats per cycle, which is standard)
+    const cps = bpm / 60 / 4;
+
+    console.error(`[SET TEMPO] BPM: ${bpm}, CPS: ${cps}`);
+
+    // Log the action
+    await this.logAction("SET_TEMPO", `Set tempo to ${bpm} BPM (${cps.toFixed(4)} cps)`);
+
+    // Send setcps command directly (no channel prefix!)
+    const tempoCommand = `setcps ${cps}`;
+
+    if (this.config.useGhci) {
+      await this.sendToGhci(tempoCommand);
+    } else {
+      await this.writeToTidalFile(tempoCommand);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✓ Tempo set to ${bpm} BPM`,
+        },
+      ],
+    };
+  }
+
+  // Pattern Generator Handlers
+
+  private async generateDrumsHandler(style: string, complexity: number = 0.5) {
+    console.error(`[GENERATE DRUMS] Style: ${style}, Complexity: ${complexity}`);
+
+    const result = this.patternGenerator.generateDrums(style, complexity);
+    await this.logAction("GENERATE_DRUMS", `Generated ${style} drums (complexity: ${complexity}) on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generateBasslineHandler(style: string) {
+    console.error(`[GENERATE BASSLINE] Style: ${style}`);
+
+    const result = this.patternGenerator.generateBassline(style);
+    await this.logAction("GENERATE_BASSLINE", `Generated ${style} bassline on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generateMelodyHandler(scale: string, length: number = 8) {
+    console.error(`[GENERATE MELODY] Scale: ${scale}, Length: ${length}`);
+
+    const result = this.patternGenerator.generateMelody(scale, length);
+    await this.logAction("GENERATE_MELODY", `Generated ${scale} melody (${length} notes) on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generatePatternHandler(style: string) {
+    console.error(`[GENERATE PATTERN] Style: ${style}`);
+
+    const results = this.patternGenerator.generateComplete(style);
+    await this.logAction("GENERATE_PATTERN", `Generated complete ${style} pattern on ${results.map(r => r.channel).join(', ')}`);
+
+    // Evaluate all generated patterns
+    const outputs: string[] = [];
+    for (const result of results) {
+      await this.evalPattern(result.channel, result.pattern);
+      outputs.push(`${result.channel}: ${result.pattern}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✓ Generated ${style} pattern:\n${outputs.join('\n')}`,
+        },
+      ],
+    };
+  }
+
+  private async generateVariationHandler(channel: string, intensity: string) {
+    console.error(`[GENERATE VARIATION] Channel: ${channel}, Intensity: ${intensity}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to vary. Play something first!`);
+    }
+
+    const variedPattern = this.patternGenerator.generateVariation(currentState.pattern, intensity);
+    await this.logAction("GENERATE_VARIATION", `Applied ${intensity} variation to ${channel}`);
+
+    // Evaluate the varied pattern
+    return this.evalPattern(channel, variedPattern);
+  }
+
+  // =========================================================================
+  // NEW MUSIC THEORY TOOL HANDLERS
+  // =========================================================================
+
+  private async generateEuclideanHandler(hits: number, steps: number, sound?: string) {
+    console.error(`[GENERATE EUCLIDEAN] Hits: ${hits}, Steps: ${steps}, Sound: ${sound || 'bd'}`);
+
+    const result = this.patternGenerator.generateEuclidean(hits, steps, sound || 'bd');
+    await this.logAction("GENERATE_EUCLIDEAN", `Generated euclidean e(${hits},${steps}) with ${sound || 'bd'} on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generateScaleHandler(root: string, scale: string) {
+    console.error(`[GENERATE SCALE] Root: ${root}, Scale: ${scale}`);
+
+    const result = this.patternGenerator.generateScale(root, scale);
+    await this.logAction("GENERATE_SCALE", `Generated ${root} ${scale} scale on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generateChordProgressionHandler(key: string, style?: string) {
+    console.error(`[GENERATE CHORD PROGRESSION] Key: ${key}, Style: ${style || 'pop'}`);
+
+    const result = this.patternGenerator.generateChordProgression(key, style || 'pop');
+    await this.logAction("GENERATE_CHORD_PROGRESSION", `Generated ${style || 'pop'} progression in ${key} on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async generateFillHandler(style?: string) {
+    console.error(`[GENERATE FILL] Style: ${style || 'standard'}`);
+
+    const result = this.patternGenerator.generateFill(style || 'standard');
+    await this.logAction("GENERATE_FILL", `Generated ${style || 'standard'} fill on ${result.channel}`);
+
+    // Evaluate the generated pattern
+    return this.evalPattern(result.channel, result.pattern);
+  }
+
+  private async addEffectHandler(channel: string, effect: string, amount?: number) {
+    console.error(`[ADD EFFECT] Channel: ${channel}, Effect: ${effect}, Amount: ${amount || 0.5}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to apply effect to. Play something first!`);
+    }
+
+    const newPattern = this.patternGenerator.applyEffect(currentState.pattern, effect, { amount: amount || 0.5 });
+    await this.logAction("ADD_EFFECT", `Applied ${effect} (amount: ${amount || 0.5}) to ${channel}`);
+
+    // Evaluate the modified pattern
+    return this.evalPattern(channel, newPattern);
+  }
+
+  private async transposeHandler(channel: string, semitones: number) {
+    console.error(`[TRANSPOSE] Channel: ${channel}, Semitones: ${semitones}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to transpose. Play something first!`);
+    }
+
+    const newPattern = this.patternGenerator.transpose(currentState.pattern, semitones);
+    await this.logAction("TRANSPOSE", `Transposed ${channel} by ${semitones} semitones`);
+
+    // Evaluate the modified pattern
+    return this.evalPattern(channel, newPattern);
+  }
+
+  private async humanizeHandler(channel: string, amount?: number) {
+    console.error(`[HUMANIZE] Channel: ${channel}, Amount: ${amount || 0.02}`);
+
+    // Get current pattern for the channel
+    const currentState = this.channels.get(channel);
+    if (!currentState || !currentState.active || !currentState.pattern) {
+      throw new Error(`No active pattern on ${channel} to humanize. Play something first!`);
+    }
+
+    const newPattern = this.patternGenerator.humanize(currentState.pattern, amount || 0.02);
+    await this.logAction("HUMANIZE", `Humanized ${channel} (amount: ${amount || 0.02})`);
+
+    // Evaluate the modified pattern
+    return this.evalPattern(channel, newPattern);
   }
 
   private async writeToTidalFile(code: string) {
