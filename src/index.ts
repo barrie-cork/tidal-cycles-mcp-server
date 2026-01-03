@@ -11,6 +11,7 @@ import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import { WebSocketServerTransport } from "./websocket-transport.js";
 import { PatternGenerator } from "./generators/PatternGenerator.js";
+import { PatternTheoryAnalyzer, PatternTheoryAnalysis } from "./analyzers/PatternTheoryAnalyzer.js";
 
 /**
  * TidalCycles MCP Server
@@ -53,6 +54,9 @@ class TidalMCPServer {
   private isReconnecting: boolean = false;
   private wsTransport?: WebSocketServerTransport;
   private patternGenerator: PatternGenerator = new PatternGenerator();
+  private patternAnalyzer: PatternTheoryAnalyzer = new PatternTheoryAnalyzer();
+  private analysisCache: PatternTheoryAnalysis | null = null;
+  private analysisCacheTime: number = 0;
 
   constructor(config: TidalConfig) {
     this.config = config;
@@ -481,7 +485,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
         // =========================================================================
         {
           name: "analyze_current_pattern",
-          description: "Analyze currently playing patterns and return music theory information including tempo, rhythm density, detected key/scale, and active channels. Use this before generating complementary patterns.",
+          description: "Analyze currently playing patterns using music theory. Returns detected key/scale, chord analysis, compatible scales, tension/resolution notes, and notes to avoid. Use this before generating complementary patterns to ensure harmonic coherence.",
           inputSchema: {
             type: "object",
             properties: {
@@ -489,6 +493,14 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
                 type: "string",
                 enum: ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "all"],
                 description: "Channel to analyze, or 'all' for full state",
+              },
+              assumedRoot: {
+                type: "string",
+                description: "Assumed root note for scale degree patterns (e.g., 'C', 'A', 'F#'). Default: 'C'",
+              },
+              forceRefresh: {
+                type: "boolean",
+                description: "Bypass cache and force fresh analysis. Default: false",
               },
             },
           },
@@ -735,7 +747,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
           case "analyze_current_pattern": {
             const result = await this.analyzeCurrentPattern(
-              args.channel as string | undefined
+              args.channel as string | undefined,
+              args.assumedRoot as string | undefined,
+              args.forceRefresh as boolean | undefined
             );
             console.error(`[TOOL RESULT] analyze_current_pattern: Success`);
             return result;
@@ -805,6 +819,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       timestamp: Date.now(),
       active: true,
     });
+
+    // Invalidate analysis cache when patterns change
+    this.analysisCache = null;
 
     // Add to history
     this.patternHistory.push({
@@ -1205,8 +1222,8 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
   // ADVANCED COMPOSITION HANDLERS
   // ===========================================================================
 
-  private async analyzeCurrentPattern(channel?: string) {
-    console.error(`[ANALYZE] Analyzing ${channel || 'all'} channels`);
+  private async analyzeCurrentPattern(channel?: string, assumedRoot?: string, forceRefresh?: boolean) {
+    console.error(`[ANALYZE] Channel: ${channel || 'all'}, Root: ${assumedRoot || 'C'}, Force: ${forceRefresh || false}`);
 
     const activeChannels = Array.from(this.channels.values())
       .filter((c) => c.active);
@@ -1222,48 +1239,97 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       };
     }
 
-    // Build analysis for each active channel
-    const analysis: string[] = [];
-    let totalDensity = 0;
-
-    for (const ch of activeChannels) {
-      if (channel && channel !== "all" && ch.channel !== channel) continue;
-
-      // Estimate rhythm density by counting pattern elements
-      const patternElements = ch.pattern.match(/[a-z0-9]+/gi) || [];
-      const density = patternElements.length;
-      totalDensity += density;
-
-      // Detect if it's drums, bass, melody based on common patterns
-      let type = "unknown";
-      if (/bd|sd|hh|cp|kick|snare|hat/i.test(ch.pattern)) type = "drums";
-      else if (/bass|sub/i.test(ch.pattern)) type = "bass";
-      else if (/piano|synth|lead|superpiano/i.test(ch.pattern)) type = "melody";
-
-      // Extract note info if present
-      let noteInfo = "";
-      const noteMatch = ch.pattern.match(/# n "([^"]+)"/);
-      if (noteMatch) {
-        noteInfo = ` Notes: ${noteMatch[1]}`;
-      }
-
-      analysis.push(`${ch.channel} (${type}): density=${density}${noteInfo}`);
+    // Check cache (30s TTL)
+    const now = Date.now();
+    if (!forceRefresh && this.analysisCache && (now - this.analysisCacheTime) < 30000) {
+      console.error('[ANALYZE] Returning cached analysis');
+      return {
+        content: [{ type: "text", text: this.formatAnalysis(this.analysisCache) }]
+      };
     }
 
-    const analysisText = `Pattern Analysis:
-${analysis.join("\n")}
+    // Filter channels if specific channel requested
+    const channelsToAnalyze = new Map<string, ChannelState>();
+    for (const ch of activeChannels) {
+      if (channel && channel !== "all" && ch.channel !== channel) continue;
+      channelsToAnalyze.set(ch.channel, ch);
+    }
 
-Total density: ${totalDensity} events/cycle
-Recommendation: ${totalDensity < 10 ? "Room for more layers" : totalDensity > 20 ? "Consider simplifying" : "Good balance"}`;
+    // Run music theory analysis
+    const analysis = this.patternAnalyzer.analyze(channelsToAnalyze, assumedRoot || 'C');
+
+    // Cache result
+    this.analysisCache = analysis;
+    this.analysisCacheTime = now;
 
     return {
-      content: [
-        {
-          type: "text",
-          text: analysisText,
-        },
-      ],
+      content: [{ type: "text", text: this.formatAnalysis(analysis) }]
     };
+  }
+
+  /**
+   * Format analysis results for LLM consumption
+   */
+  private formatAnalysis(analysis: PatternTheoryAnalysis): string {
+    const lines: string[] = [];
+
+    lines.push("=== Pattern Analysis ===");
+    lines.push("");
+
+    // Key detection
+    const confidence = (analysis.detectedKey.confidence * 100).toFixed(0);
+    lines.push(`Key: ${analysis.detectedKey.key} ${analysis.detectedKey.scale} (${confidence}% confidence)`);
+
+    if (analysis.detectedKey.alternatives.length > 0) {
+      const alts = analysis.detectedKey.alternatives
+        .map(a => `${a.key} ${a.scale}`)
+        .join(', ');
+      lines.push(`Alternatives: ${alts}`);
+    }
+    lines.push("");
+
+    // Chord detection
+    if (analysis.chords.detected.length > 0) {
+      lines.push(`Chords detected: ${analysis.chords.detected.join(', ')}`);
+      lines.push(`Harmonic tension: ${(analysis.chords.harmonicTension * 100).toFixed(0)}%`);
+      lines.push("");
+    }
+
+    // Suggestions
+    lines.push("=== Suggestions for Complementary Patterns ===");
+    lines.push("");
+
+    if (analysis.suggestions.compatibleScales.length > 0) {
+      lines.push(`Compatible scales: ${analysis.suggestions.compatibleScales.slice(0, 3).join(', ')}`);
+    }
+
+    if (analysis.suggestions.resolutionNotes.length > 0) {
+      lines.push(`Resolution notes (safe): ${analysis.suggestions.resolutionNotes.join(', ')}`);
+    }
+
+    if (analysis.suggestions.tensionNotes.length > 0) {
+      lines.push(`Tension notes (use sparingly): ${analysis.suggestions.tensionNotes.join(', ')}`);
+    }
+
+    if (analysis.suggestions.avoidNotes.length > 0) {
+      lines.push(`Avoid notes (clash risk): ${analysis.suggestions.avoidNotes.join(', ')}`);
+    }
+    lines.push("");
+
+    // Rhythm info
+    lines.push("=== Rhythm Analysis ===");
+    lines.push(`Note density: ${analysis.rhythm.noteDensity} events/cycle`);
+    lines.push(`Melodic contour: ${analysis.melody.contour}`);
+    lines.push(`Range: ${analysis.melody.range.low} to ${analysis.melody.range.high}`);
+
+    const densityRec = analysis.rhythm.noteDensity < 10
+      ? "Room for more layers"
+      : analysis.rhythm.noteDensity > 20
+        ? "Consider simplifying"
+        : "Good balance";
+    lines.push(`Recommendation: ${densityRec}`);
+
+    return lines.join('\n');
   }
 
   private async generateFromReference(reference: string, element?: string) {
