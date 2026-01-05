@@ -576,9 +576,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
-      // Log all incoming tool calls
-      console.error(`[TOOL CALL] ${name}`);
-      console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
+      // Log all incoming tool calls (except quiet polling)
+      const isQuietPoll = name === "tidal_get_state" && (args as Record<string, unknown>)?.quiet === true;
+      if (!isQuietPoll) {
+        console.error(`[TOOL CALL] ${name}`);
+        console.error(`[TOOL ARGS] ${JSON.stringify(args, null, 2)}`);
+      }
 
       try {
         if (!args) {
@@ -606,7 +609,9 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
 
           case "tidal_get_state": {
             const result = await this.getState();
-            console.error(`[TOOL RESULT] tidal_get_state: Success`);
+            if (!isQuietPoll) {
+              console.error(`[TOOL RESULT] tidal_get_state: Success`);
+            }
             return result;
           }
 
@@ -1351,7 +1356,7 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
     const references: Record<string, ReferencePattern> = {
       // Hip-Hop / Boom-Bap
       "big poppa": { bpm: 105, kick: 'sound "bd ~ ~ bd ~ bd ~ ~"', snare: 'sound "~ ~ sd ~ ~ ~ sd ~"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 ~ 3 ~ 5 ~ 3 ~"', effects: '# room 0.3 # crush 5' },
-      "juicy": { bpm: 94, kick: 'sound "bd*4"', snare: 'sound "~ sd ~ sd"', hat: 'sound "oh*4"', bass: 'sound "bass3" # n "0 0 7 7"', effects: '# lpf 2000 # room 0.2' },
+      "juicy": { bpm: 94, kick: 'sound "bd*4"', snare: 'sound "~ sd ~ sd"', hat: 'sound "hh*4" # gain 0.6', bass: 'sound "bass3" # n "0 0 7 7"', effects: '# lpf 2000 # room 0.2' },
       "still dre": { bpm: 93, kick: 'sound "bd ~ bd ~ bd ~ ~ bd"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh(5,8)"', bass: 'sound "bass3" # n "0 ~ ~ 0 ~ 5 ~ ~"', effects: '# room 0.3' },
       "cream": { bpm: 92, kick: 'sound "bd ~ ~ ~ bd ~ ~ ~"', snare: 'sound "~ ~ sd ~ ~ ~ sd ~"', hat: 'sound "[hh hh] ~ [hh hh] ~"', effects: '# room 0.4 # crush 6' },
       "nuthin but a g thang": { bpm: 95, kick: 'sound "bd ~ bd ~ bd ~ ~ bd"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh*8" # gain 0.4', bass: 'sound "bass3" # n "0 ~ 0 ~ 5 ~ 0 ~"', effects: '# lpf 1500 # room 0.3' },
@@ -1361,12 +1366,12 @@ ACTION: ${action}${details ? '\nDETAILS: ' + details : ''}
       // House / Electronic
       "daft punk": { bpm: 121, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 0 0 0 3 3 5 5"', effects: '# room 0.3' },
       "around the world": { bpm: 121, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 0 0 0 3 3 5 5"', effects: '# lpf 1200 # room 0.3' },
-      "blue monday": { bpm: 130, kick: 'sound "bd*4"', snare: 'sound "~ ~ sd ~"', hat: 'sound "oh(3,8)"', bass: 'sound "bass3" # n "0 0 3 3 5 5 7 7"', effects: '# room 0.4' },
+      "blue monday": { bpm: 130, kick: 'sound "bd*4"', snare: 'sound "~ ~ sd ~"', hat: 'sound "hh(3,8)"', bass: 'sound "bass3" # n "0 0 3 3 5 5 7 7"', effects: '# room 0.4' },
       "filter house": { bpm: 124, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*8"', bass: 'sound "bass3" # n "0 ~ 3 ~ 5 ~ 3 ~"', effects: '# lpf 1000 # room 0.3' },
 
       // Techno
       "minimal": { bpm: 128, kick: 'sound "bd*4" # gain 0.9', snare: 'sound "~ ~ cp ~"', hat: 'sound "hh(3,8)"', effects: '# room 0.2' },
-      "acid": { bpm: 125, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "oh*4"', bass: 'sound "bass3" # n "0 3 5 7" # lpf 800', effects: '# room 0.3' },
+      "acid": { bpm: 125, kick: 'sound "bd*4"', snare: 'sound "~ cp ~ cp"', hat: 'sound "hh*4" # gain 0.5', bass: 'sound "bass3" # n "0 3 5 7" # lpf 800', effects: '# room 0.3' },
     };
 
     // Find matching reference
